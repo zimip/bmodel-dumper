@@ -1,4 +1,4 @@
-# Decimation Model Renderer Insight
+# Model Renderer Insight
 
 ## Disclaimer and Terms of Use
 
