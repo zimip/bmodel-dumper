@@ -5,8 +5,8 @@
 The entire scope of this repository is to provide insight into how Decimation custom models work and render. This tool was made for research purposes only, created as a side project while I was working on an addon. Since I have left the modding community as a whole, I am providing this tool free for use to everybody, intended strictly for private use.
 
 > [!WARNING]
-> * **No Support:** This tool is distributed as-is, and I will not be providing any direct support or updates.
-> * **Liability:** I am NOT responsible for any damage caused by this tool or anything that comes with it.
+> * **No Support:** This tool is distributed as-is, and I will not be providing any direct support or on-demand updates.
+> * **Liability:** I am NOT responsible for any damage caused by this tool or anything that comes with it, *including, or not including, world famine*.
 > * **Misuse:** I do NOT condone any misuse of this tool. The important thing is not to redistribute it with malicious intentions.
 
 ### Legal and Research Notice
