@@ -14,13 +14,13 @@ In accordance with legal exceptions for scientific research, interoperability, a
 
 ---
 
-## 👥 Credits
+## Credits
 
 All credits go to **BeardieLover** and **ScottehBoeh** for both the model renderer concepts and their mods who subsequently use these models. Feel free to use this tool as you wish, keeping in mind the restrictions stated above.
 
 ---
 
-## 💬 Contact
+## Contact
 
 For any inquiries or clarifications, you MUST contact me directly on Discord:
 
