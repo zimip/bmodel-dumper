@@ -1,17 +1,15 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>BModel Web Editor - Multi-Select Edition</title>
+    <title>bmodel-dumper</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1a1a1a; color: #fff; }
-        
-        /* PANNELLO STRUMENTI (SINISTRA) */
+
         #left-panel { position: absolute; top: 15px; left: 15px; z-index: 100; background: rgba(30, 30, 30, 0.95); padding: 15px; border-radius: 10px; border: 1px solid #555; box-shadow: 0 4px 10px rgba(0,0,0,0.8); width: 340px; max-height: 90vh; overflow-y: auto;}
-        
-        /* PANNELLO CARICAMENTO (DESTRA) */
+
         #right-panel { position: absolute; top: 15px; right: 15px; z-index: 100; background: rgba(30, 30, 30, 0.95); padding: 15px; border-radius: 10px; border: 1px solid #555; box-shadow: 0 4px 10px rgba(0,0,0,0.8); width: 300px; max-height: 90vh; overflow-y: auto;}
-        
+
         h3 { margin-top: 0; color: #4da6ff; margin-bottom: 15px; font-size: 1.2em;}
         .file-group { margin-bottom: 15px; background: #222; padding: 10px; border-radius: 6px; border-left: 3px solid #4da6ff;}
         .file-group label { font-weight: bold; color: #ddd; font-size: 0.9em; display: block; margin-bottom: 5px; }
@@ -19,6 +17,11 @@
         canvas { display: block; }
         #info { position: absolute; bottom: 10px; left: 10px; color: #aaa; font-size: 13px; z-index: 100; pointer-events: none; background: rgba(0,0,0,0.6); padding: 8px 12px; border-radius: 5px; line-height: 1.5;}
         .dg.main { margin-top: 0 !important; width: 100% !important; }
+        #texture-preview-wrap { margin-top: 5px; background: #222; padding: 8px; border-radius: 6px; border-left: 3px solid #4da6ff; }
+        #texture-preview-wrap label { font-weight: bold; color: #ddd; font-size: 0.9em; display: block; margin-bottom: 8px; }
+        #texture-preview-wrap .checker { background-image: linear-gradient(45deg, #2b2b2b 25%, transparent 25%), linear-gradient(-45deg, #2b2b2b 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #2b2b2b 75%), linear-gradient(-45deg, transparent 75%, #2b2b2b 75%); background-size: 16px 16px; background-position: 0 0, 0 8px, 8px -8px, -8px 0; padding: 4px; border-radius: 4px; }
+        #texturePreview { width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; display: block; border: 1px solid #444; }
+        #texture-info { color: #888; font-size: 0.75em; margin-top: 6px; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -28,35 +31,42 @@
 <body>
 
     <div id="left-panel">
-        <h3>BModel Editor Pro</h3>
+        <h3>bmodel-dumper</h3>
         <div id="gui-container"></div>
     </div>
 
     <div id="right-panel">
-        <h3>Importazione</h3>
+        <h3>Import</h3>
         <div class="file-group">
-            <label>1. Modello (.txt/.bmodel):</label>
+            <label>1. Model (.txt/.bmodel):</label>
             <input type="file" id="modelUpload" accept=".txt,.bmodel">
         </div>
         <div class="file-group">
             <label>2. Texture (.png):</label>
             <input type="file" id="textureUpload" accept="image/png">
         </div>
+        <div id="texture-preview-wrap">
+            <label>Texture Preview</label>
+            <div class="checker"><canvas id="texturePreview"></canvas></div>
+            <div id="texture-info"></div>
+        </div>
     </div>
 
     <div id="info">
-        <b>Mouse:</b> Click(Selezione) | Ctrl+Click(Selezione Multipla)<br>
-        <b>Strumenti:</b> T(Sposta), R(Ruota), S(Scala)<br>
-        <b>Azioni:</b> Ctrl+C(Copia), Ctrl+V(Incolla), Ctrl+X(Taglia), Canc(Elimina)<br>
-        <b>Storia:</b> Ctrl+Z(Annulla), Ctrl+Y(Ripeti)
+        <b>Mouse:</b> Click (select) | Ctrl+Click (multi-select)<br>
+        <b>Tools:</b> T (move), R (rotate), S (scale)<br>
+        <b>Edit:</b> Ctrl+C (copy), Ctrl+V (paste), Ctrl+X (cut), Ctrl+D (duplicate), Del (delete)<br>
+        <b>Select:</b> Ctrl+A (select all), Esc (deselect)<br>
+        <b>History:</b> Ctrl+Z (undo), Ctrl+Y (redo)
     </div>
 
     <script>
-        // --- SETUP SCENA ---
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x333333);
-        scene.add(new THREE.GridHelper(50, 50, 0x555555, 0x222222));
-        scene.add(new THREE.AxesHelper(5));
+        const gridHelper = new THREE.GridHelper(50, 50, 0x555555, 0x222222);
+        scene.add(gridHelper);
+        const axesHelper = new THREE.AxesHelper(5);
+        scene.add(axesHelper);
 
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
         camera.position.set(5, 5, -5);
@@ -86,100 +96,123 @@
 
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
-        
-        // --- ARRAY MULTI-SELEZIONE ---
-        let selectedGroups = []; 
-        let selectedMeshes = [];  
 
-        let tW = 512, tH = 16; 
+        let selectedGroups = [];
+        let selectedMeshes = [];
 
-        // --- MOTORE TEXTURE ---
+        let tW = 512, tH = 16;
+
         const textureCanvas = document.createElement('canvas');
         let ctx = textureCanvas.getContext('2d');
         textureCanvas.width = tW; textureCanvas.height = tH;
-        ctx.fillStyle = "rgba(255, 255, 255, 1)"; 
+        ctx.fillStyle = "rgba(255, 255, 255, 1)";
         ctx.fillRect(0, 0, tW, tH);
 
         const globalTexture = new THREE.CanvasTexture(textureCanvas);
-        globalTexture.magFilter = THREE.NearestFilter; 
+        globalTexture.magFilter = THREE.NearestFilter;
         globalTexture.minFilter = THREE.NearestFilter;
-        
-        const baseMaterial = new THREE.MeshLambertMaterial({ 
-            map: globalTexture, side: THREE.DoubleSide, transparent: true, alphaTest: 0.05 
+
+        const baseMaterial = new THREE.MeshLambertMaterial({
+            map: globalTexture, side: THREE.DoubleSide, transparent: true, alphaTest: 0.05
         });
 
-        // --- UI DAT.GUI ---
+        const previewCanvas = document.getElementById('texturePreview');
+        const previewCtx = previewCanvas.getContext('2d');
+        const textureInfo = document.getElementById('texture-info');
+
+        function refreshTexturePreview() {
+            previewCanvas.width = tW;
+            previewCanvas.height = tH;
+            previewCtx.imageSmoothingEnabled = false;
+            previewCtx.clearRect(0, 0, tW, tH);
+            previewCtx.drawImage(textureCanvas, 0, 0);
+            textureInfo.textContent = tW + " x " + tH + " px";
+        }
+
+        function updateTexture() {
+            globalTexture.needsUpdate = true;
+            refreshTexturePreview();
+        }
+
+        const MAX_HISTORY = 60;
+        let historyStack = [];
+        let historyIndex = -1;
+
         const gui = new dat.GUI({ autoPlace: false });
         document.getElementById('gui-container').appendChild(gui.domElement);
 
         const uiState = {
-            Strumento: 'translate', NomePezzo: 'Nessuno', texU: 0, texV: 0, Colore: '#4da6ff',
-            Dipingi: function() { dipingiTexture(); },
-            // Nuovi controlli Posizione e Rotazione (in gradi)
+            Tool: 'translate', PartName: 'None', texU: 0, texV: 0, Color: '#4da6ff',
+            Paint: function() { paintTexture(); },
             posX: 0, posY: 0, posZ: 0, rotX: 0, rotY: 0, rotZ: 0,
             w: 1, h: 1, len: 1, offX: 0, offY: 0, offZ: 0,
-            AggiungiBlocco: function() { creaNuovoBlocco(); },
-            Deseleziona: deselezionaTutto,
-            EsportaTutto: function() { esportaTutto(); }
+            SnapEnabled: false, SnapTranslate: 1, SnapRotate: 15,
+            Wireframe: false, ShowGrid: true,
+            AddBlock: function() { createNewBlock(); },
+            Duplicate: function() { duplicateSelected(); },
+            SelectAll: function() { selectAll(); },
+            Deselect: deselectAll,
+            NewModel: function() { newModel(); },
+            Undo: function() { loadState(historyIndex - 1); },
+            Redo: function() { loadState(historyIndex + 1); },
+            ResetCamera: function() { resetCamera(); },
+            Export: function() { exportAll(); }
         };
 
-        const toolCtrl = gui.add(uiState, 'Strumento', ['translate', 'rotate', 'scale']).onChange(v => transformControl.setMode(v));
-        gui.add(uiState, 'NomePezzo').listen();
-        
-        // Cartella Posizione e Rotazione
-        const transFolder = gui.addFolder('Posizione e Rotazione (Assoluta)');
-        function aggiornaTrasformazioniManuali() {
-            if(selectedGroups.length === 0) return;
-            selectedGroups.forEach(g => {
-                g.position.set(uiState.posX, uiState.posY, uiState.posZ);
-                g.rotation.set(
-                    THREE.MathUtils.degToRad(uiState.rotX), 
-                    THREE.MathUtils.degToRad(uiState.rotY), 
-                    THREE.MathUtils.degToRad(uiState.rotZ)
-                );
-                g.updateMatrixWorld(true);
-            });
-            selectionBox.setFromObject(selectedGroups[selectedGroups.length - 1]);
-        }
-        
-        transFolder.add(uiState, 'posX').step(0.1).name('Pos X').onChange(aggiornaTrasformazioniManuali).listen();
-        transFolder.add(uiState, 'posY').step(0.1).name('Pos Y').onChange(aggiornaTrasformazioniManuali).listen();
-        transFolder.add(uiState, 'posZ').step(0.1).name('Pos Z').onChange(aggiornaTrasformazioniManuali).listen();
-        transFolder.add(uiState, 'rotX').step(1).name('Rot X (gradi)').onChange(aggiornaTrasformazioniManuali).listen();
-        transFolder.add(uiState, 'rotY').step(1).name('Rot Y (gradi)').onChange(aggiornaTrasformazioniManuali).listen();
-        transFolder.add(uiState, 'rotZ').step(1).name('Rot Z (gradi)').onChange(aggiornaTrasformazioniManuali).listen();
+        const toolCtrl = gui.add(uiState, 'Tool', ['translate', 'rotate', 'scale']).onChange(v => transformControl.setMode(v));
+        gui.add(uiState, 'PartName').name('Part Name').onFinishChange(renameSelected).listen();
 
-        const dimFolder = gui.addFolder('Dimensioni e Offset Forma');
-        dimFolder.add(uiState, 'w').step(0.1).onFinishChange(val => { rigeneraGeometriaPezzo(); saveState(); }).listen();
-        dimFolder.add(uiState, 'h').step(0.1).onFinishChange(val => { rigeneraGeometriaPezzo(); saveState(); }).listen();
-        dimFolder.add(uiState, 'len').step(0.1).onFinishChange(val => { rigeneraGeometriaPezzo(); saveState(); }).listen();
-        dimFolder.add(uiState, 'offX').step(0.1).onFinishChange(val => { rigeneraGeometriaPezzo(); saveState(); }).listen();
-        dimFolder.add(uiState, 'offY').step(0.1).onFinishChange(val => { rigeneraGeometriaPezzo(); saveState(); }).listen();
-        dimFolder.add(uiState, 'offZ').step(0.1).onFinishChange(val => { rigeneraGeometriaPezzo(); saveState(); }).listen();
+        const transFolder = gui.addFolder('Position & Rotation (Absolute)');
+        transFolder.add(uiState, 'posX').step(0.1).name('Pos X').onChange(applyManualTransform).onFinishChange(saveState).listen();
+        transFolder.add(uiState, 'posY').step(0.1).name('Pos Y').onChange(applyManualTransform).onFinishChange(saveState).listen();
+        transFolder.add(uiState, 'posZ').step(0.1).name('Pos Z').onChange(applyManualTransform).onFinishChange(saveState).listen();
+        transFolder.add(uiState, 'rotX').step(1).name('Rot X (deg)').onChange(applyManualTransform).onFinishChange(saveState).listen();
+        transFolder.add(uiState, 'rotY').step(1).name('Rot Y (deg)').onChange(applyManualTransform).onFinishChange(saveState).listen();
+        transFolder.add(uiState, 'rotZ').step(1).name('Rot Z (deg)').onChange(applyManualTransform).onFinishChange(saveState).listen();
 
-        const colorFolder = gui.addFolder('Colora Blocco (Multiplo)');
-        colorFolder.addColor(uiState, 'Colore');
-        colorFolder.add(uiState, 'Dipingi').name('🖌️ Dipingi Selezionati');
+        const dimFolder = gui.addFolder('Shape Size & Offset');
+        dimFolder.add(uiState, 'w').step(0.1).name('Width').onFinishChange(() => { regenerateSelectedGeometry(); saveState(); }).listen();
+        dimFolder.add(uiState, 'h').step(0.1).name('Height').onFinishChange(() => { regenerateSelectedGeometry(); saveState(); }).listen();
+        dimFolder.add(uiState, 'len').step(0.1).name('Length').onFinishChange(() => { regenerateSelectedGeometry(); saveState(); }).listen();
+        dimFolder.add(uiState, 'offX').step(0.1).name('Offset X').onFinishChange(() => { regenerateSelectedGeometry(); saveState(); }).listen();
+        dimFolder.add(uiState, 'offY').step(0.1).name('Offset Y').onFinishChange(() => { regenerateSelectedGeometry(); saveState(); }).listen();
+        dimFolder.add(uiState, 'offZ').step(0.1).name('Offset Z').onFinishChange(() => { regenerateSelectedGeometry(); saveState(); }).listen();
 
-        gui.add(uiState, 'AggiungiBlocco').name('+ Nuovo Blocco Isolato');
-        gui.add(uiState, 'Deseleziona').name('Deseleziona Tutto');
-        gui.add(uiState, 'EsportaTutto').name('💾 Esporta Modello e Texture');
+        const colorFolder = gui.addFolder('Paint Block (Multi)');
+        colorFolder.addColor(uiState, 'Color');
+        colorFolder.add(uiState, 'Paint').name('Paint Selected');
 
-        // --- SISTEMA STORIA (UNDO / REDO) ---
-        let historyStack = [];
-        let historyIndex = -1;
+        const snapFolder = gui.addFolder('Snapping');
+        snapFolder.add(uiState, 'SnapEnabled').name('Enable Snap').onChange(updateSnap);
+        snapFolder.add(uiState, 'SnapTranslate').step(0.25).name('Move Step').onChange(updateSnap);
+        snapFolder.add(uiState, 'SnapRotate').step(1).name('Rotate Step (deg)').onChange(updateSnap);
+
+        const viewFolder = gui.addFolder('View');
+        viewFolder.add(uiState, 'Wireframe').name('Wireframe').onChange(toggleWireframe);
+        viewFolder.add(uiState, 'ShowGrid').name('Show Grid').onChange(v => { gridHelper.visible = v; axesHelper.visible = v; });
+        viewFolder.add(uiState, 'ResetCamera').name('Reset Camera');
+
+        const actionFolder = gui.addFolder('Actions');
+        actionFolder.add(uiState, 'AddBlock').name('+ New Isolated Block');
+        actionFolder.add(uiState, 'Duplicate').name('Duplicate Selected');
+        actionFolder.add(uiState, 'SelectAll').name('Select All');
+        actionFolder.add(uiState, 'Deselect').name('Deselect All');
+        actionFolder.add(uiState, 'Undo').name('Undo');
+        actionFolder.add(uiState, 'Redo').name('Redo');
+        actionFolder.add(uiState, 'NewModel').name('New Model (Clear)');
+        actionFolder.add(uiState, 'Export').name('Export Model & Texture');
 
         function serializeModel() {
             const data = [];
-            currentModelGroup.children.forEach(c => {
-                if(c.isGroup && c.name) {
+            currentModelGroup.traverse(c => {
+                if (c.isGroup && c !== currentModelGroup && c.name) {
                     data.push({
                         name: c.name,
                         w: c.userData.w, h: c.userData.h, len: c.userData.len,
                         offX: c.userData.offX, offY: c.userData.offY, offZ: c.userData.offZ,
                         texU: c.userData.texU, texV: c.userData.texV,
                         baseVecs: JSON.parse(JSON.stringify(c.userData.baseVecs || [[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0]])),
-                        parentName: c.userData.parentName,
+                        parentName: c.userData.parentName || null,
                         posX: c.position.x, posY: c.position.y, posZ: c.position.z,
                         rotX: c.rotation.x, rotY: c.rotation.y, rotZ: c.rotation.z,
                         scaleX: c.scale.x, scaleY: c.scale.y, scaleZ: c.scale.z
@@ -199,27 +232,41 @@
                 modelData: serializeModel()
             });
             historyIndex++;
+            if (historyStack.length > MAX_HISTORY) {
+                historyStack.shift();
+                historyIndex--;
+            }
+        }
+
+        function disposeGroup(g) {
+            if (g.children[0] && g.children[0].isMesh) {
+                if (g.children[0].geometry) g.children[0].geometry.dispose();
+                if (g.children[0].material) g.children[0].material.dispose();
+            }
         }
 
         function loadState(stateIndex) {
-            if(stateIndex < 0 || stateIndex >= historyStack.length) return;
+            if (stateIndex < 0 || stateIndex >= historyStack.length) return;
             const state = historyStack[stateIndex];
-            
-            deselezionaTutto();
+
+            deselectAll();
+            currentModelGroup.traverse(c => { if (c.isGroup && c !== currentModelGroup) disposeGroup(c); });
             currentModelGroup.clear();
-            
+
             tW = state.tW; tH = state.tH;
             textureCanvas.width = tW; textureCanvas.height = tH;
             ctx = textureCanvas.getContext('2d');
-            
+            ctx.imageSmoothingEnabled = false;
+
             const img = new Image();
             img.onload = () => {
-                ctx.clearRect(0,0,tW,tH);
+                ctx.clearRect(0, 0, tW, tH);
                 ctx.drawImage(img, 0, 0);
-                globalTexture.needsUpdate = true;
+                updateTexture();
             };
             img.src = state.textureData;
 
+            const map = {};
             state.modelData.forEach(d => {
                 const group = new THREE.Group();
                 group.name = d.name;
@@ -229,24 +276,32 @@
                 group.userData.texU = d.texU; group.userData.texV = d.texV;
                 group.userData.baseVecs = d.baseVecs;
                 group.userData.parentName = d.parentName;
-                
+
                 group.position.set(d.posX, d.posY, d.posZ);
                 group.rotation.set(d.rotX, d.rotY, d.rotZ);
                 group.scale.set(d.scaleX, d.scaleY, d.scaleZ);
 
-                const geom = new THREE.BufferGeometry();
-                const matClone = baseMaterial.clone();
-                const mesh = new THREE.Mesh(geom, matClone);
+                const mesh = new THREE.Mesh(new THREE.BufferGeometry(), baseMaterial.clone());
+                mesh.material.wireframe = uiState.Wireframe;
                 group.add(mesh);
-                currentModelGroup.add(group);
-                
                 buildGeometryFor(group, mesh);
+                map[d.name] = group;
             });
+
+            state.modelData.forEach(d => {
+                const g = map[d.name];
+                if (d.parentName && map[d.parentName]) {
+                    map[d.parentName].add(g);
+                    g.userData.parentName = d.parentName;
+                } else {
+                    currentModelGroup.add(g);
+                }
+            });
+
             historyIndex = stateIndex;
         }
 
-        // --- SELEZIONE E HIGHLIGHT (MULTI) ---
-        function selezionaMesh(mesh, isMulti = false) {
+        function selectMesh(mesh, isMulti = false) {
             if (isMulti) {
                 const index = selectedMeshes.indexOf(mesh);
                 if (index > -1) {
@@ -259,21 +314,20 @@
                     selectedGroups.push(mesh.parent);
                 }
             } else {
-                selectedMeshes.forEach(m => { if(m && m.material) m.material.emissive.setHex(0x000000); });
+                selectedMeshes.forEach(m => { if (m && m.material) m.material.emissive.setHex(0x000000); });
                 selectedMeshes = [mesh];
                 selectedGroups = [mesh.parent];
                 mesh.material.emissive.setHex(0xffff00);
             }
 
             if (selectedGroups.length > 0) {
-                const lead = selectedGroups[selectedGroups.length - 1]; // L'ultimo cliccato funge da "Leader" per il Gizmo e la UI
+                const lead = selectedGroups[selectedGroups.length - 1];
                 transformControl.attach(lead);
                 selectionBox.setFromObject(lead);
                 selectionBox.visible = true;
-                
-                uiState.NomePezzo = selectedGroups.length > 1 ? `Selezionati: [ ${selectedGroups.length} ]` : (lead.name || "Custom");
-                
-                // Aggiorna UI posizione e rotazione
+
+                uiState.PartName = selectedGroups.length > 1 ? "Selected: [ " + selectedGroups.length + " ]" : (lead.name || "Custom");
+
                 uiState.posX = lead.position.x;
                 uiState.posY = lead.position.y;
                 uiState.posZ = lead.position.z;
@@ -290,35 +344,57 @@
                 uiState.offY = lead.userData.offY;
                 uiState.offZ = lead.userData.offZ;
             } else {
-                deselezionaTutto();
+                deselectAll();
             }
         }
 
-        function deselezionaTutto() {
+        function deselectAll() {
             transformControl.detach();
-            selectedMeshes.forEach(m => { if(m && m.material) m.material.emissive.setHex(0x000000); });
+            selectedMeshes.forEach(m => { if (m && m.material) m.material.emissive.setHex(0x000000); });
             selectedGroups = []; selectedMeshes = [];
             selectionBox.visible = false;
-            uiState.NomePezzo = 'Nessuno';
+            uiState.PartName = 'None';
         }
 
-        // --- GIZMO DRAG DI MASSA (MAGIA MULTIPLA) E SINCRONIZZAZIONE UI ---
+        function selectAll() {
+            deselectAll();
+            const meshes = [];
+            currentModelGroup.traverse(c => {
+                if (c.isMesh && c.parent && c.parent.isGroup && c.parent.name) meshes.push(c);
+            });
+            meshes.forEach((m, i) => selectMesh(m, i > 0));
+        }
+
+        function renameSelected() {
+            if (selectedGroups.length !== 1) return;
+            const g = selectedGroups[0];
+            const oldName = g.name;
+            const newName = (uiState.PartName || '').trim().replace(/[^a-zA-Z0-9_]/g, '_');
+            if (!newName || newName === oldName) { uiState.PartName = oldName; return; }
+            currentModelGroup.traverse(c => {
+                if (c.isGroup && c.userData.parentName === oldName) c.userData.parentName = newName;
+            });
+            g.name = newName;
+            uiState.PartName = newName;
+            saveState();
+        }
+
         let dragStartData = new Map();
         let leadInitialMatrixInv = new THREE.Matrix4();
 
         function hasSelectedAncestor(g) {
             let p = g.parent;
-            while(p && p !== currentModelGroup && p !== scene) {
+            while (p && p !== currentModelGroup && p !== scene) {
                 if (selectedGroups.includes(p)) return true;
                 p = p.parent;
             }
             return false;
         }
 
-        transformControl.addEventListener('dragging-changed', event => { 
-            orbit.enabled = !event.value; 
-            if(event.value) { 
-                if(selectedGroups.length > 1) {
+        transformControl.addEventListener('dragging-changed', event => {
+            orbit.enabled = !event.value;
+            if (event.value) {
+                if (selectedGroups.length > 1) {
                     const lead = selectedGroups[selectedGroups.length - 1];
                     lead.updateMatrixWorld(true);
                     leadInitialMatrixInv.copy(lead.matrixWorld).invert();
@@ -340,8 +416,7 @@
             if (selectedGroups.length > 0) {
                 const lead = selectedGroups[selectedGroups.length - 1];
                 selectionBox.setFromObject(lead);
-                
-                // Aggiorna gli slider UI in tempo reale
+
                 uiState.posX = lead.position.x;
                 uiState.posY = lead.position.y;
                 uiState.posZ = lead.position.z;
@@ -358,7 +433,7 @@
                         if (g !== lead && dragStartData.has(g)) {
                             const initialGWorld = dragStartData.get(g);
                             const newGWorld = deltaTransform.clone().multiply(initialGWorld);
-                            
+
                             const parentInv = g.parent.matrixWorld.clone().invert();
                             const newLocal = parentInv.multiply(newGWorld);
                             newLocal.decompose(g.position, g.quaternion, g.scale);
@@ -369,10 +444,47 @@
             }
         });
 
-        // --- CLIPBOARD E RIMOZIONE (MULTI) ---
+        function applyManualTransform() {
+            if (selectedGroups.length === 0) return;
+            const lead = selectedGroups[selectedGroups.length - 1];
+
+            lead.updateMatrixWorld(true);
+            const oldWorldInv = lead.matrixWorld.clone().invert();
+
+            const othersWorld = new Map();
+            selectedGroups.forEach(g => {
+                if (g !== lead && !hasSelectedAncestor(g)) {
+                    g.updateMatrixWorld(true);
+                    othersWorld.set(g, g.matrixWorld.clone());
+                }
+            });
+
+            lead.position.set(uiState.posX, uiState.posY, uiState.posZ);
+            lead.rotation.set(
+                THREE.MathUtils.degToRad(uiState.rotX),
+                THREE.MathUtils.degToRad(uiState.rotY),
+                THREE.MathUtils.degToRad(uiState.rotZ)
+            );
+            lead.updateMatrixWorld(true);
+
+            if (othersWorld.size > 0) {
+                const delta = lead.matrixWorld.clone().multiply(oldWorldInv);
+                othersWorld.forEach((world, g) => {
+                    const newWorld = delta.clone().multiply(world);
+                    const parentInv = g.parent.matrixWorld.clone().invert();
+                    const local = parentInv.multiply(newWorld);
+                    local.decompose(g.position, g.quaternion, g.scale);
+                    g.updateMatrix();
+                    g.updateMatrixWorld(true);
+                });
+            }
+
+            selectionBox.setFromObject(lead);
+        }
+
         let clipboardData = [];
 
-        function copiaBlocco() {
+        function copyBlock() {
             if (selectedGroups.length === 0) return;
             clipboardData = selectedGroups.map(g => ({
                 w: g.userData.w, h: g.userData.h, len: g.userData.len,
@@ -385,69 +497,72 @@
             }));
         }
 
-        function rimuoviBlocco() {
+        function isTextureRegionShared(u, v, exclude) {
+            let shared = false;
+            currentModelGroup.traverse(c => {
+                if (c.isGroup && c !== currentModelGroup && c !== exclude && c.userData.texU === u && c.userData.texV === v) {
+                    shared = true;
+                }
+            });
+            return shared;
+        }
+
+        function removeBlock() {
             if (selectedGroups.length === 0) return;
-            
+
             const groupsToRemove = [...selectedGroups];
-            
+
             groupsToRemove.forEach(g => {
                 const u = g.userData.texU; const v = g.userData.texV;
                 const w = g.userData.w; const h = g.userData.h; const len = g.userData.len;
 
-                currentModelGroup.remove(g);
-                if(g.children[0]) g.children[0].geometry.dispose();
-                
-                let isShared = false;
-                currentModelGroup.children.forEach(c => {
-                    if(c.isGroup && c.userData.texU === u && c.userData.texV === v) {
-                        isShared = true;
-                    }
-                });
+                if (g.parent) g.parent.remove(g);
+                disposeGroup(g);
 
-                if (!isShared) {
-                    ctx.clearRect(u + len, v, w, len); 
-                    ctx.clearRect(u + len + w, v, w, len); 
-                    ctx.clearRect(u, v + len, len, h); 
-                    ctx.clearRect(u + len, v + len, w, h); 
-                    ctx.clearRect(u + len + w, v + len, len, h); 
-                    ctx.clearRect(u + 2*len + w, v + len, w, h); 
+                if (!isTextureRegionShared(u, v, g)) {
+                    ctx.clearRect(u + len, v, w, len);
+                    ctx.clearRect(u + len + w, v, w, len);
+                    ctx.clearRect(u, v + len, len, h);
+                    ctx.clearRect(u + len, v + len, w, h);
+                    ctx.clearRect(u + len + w, v + len, len, h);
+                    ctx.clearRect(u + 2 * len + w, v + len, w, h);
                 }
             });
 
-            globalTexture.needsUpdate = true;
-            deselezionaTutto();
-            saveState(); 
+            updateTexture();
+            deselectAll();
+            saveState();
         }
 
-        function tagliaBlocco() {
-            copiaBlocco();
-            rimuoviBlocco();
+        function cutBlock() {
+            copyBlock();
+            removeBlock();
         }
 
         let customCounter = 0;
-        function incollaBlocco() {
+        function pasteBlock() {
             if (clipboardData.length === 0) return;
-            
-            deselezionaTutto();
+
+            deselectAll();
             let newMeshes = [];
 
             clipboardData.forEach(d => {
                 const group = new THREE.Group();
-                group.name = "Copia_" + customCounter++;
+                group.name = "Copy_" + customCounter++;
                 group.rotation.order = 'ZYX';
-                
+
                 group.userData.w = d.w; group.userData.h = d.h; group.userData.len = d.len;
                 group.userData.offX = d.offX; group.userData.offY = d.offY; group.userData.offZ = d.offZ;
                 group.userData.baseVecs = JSON.parse(JSON.stringify(d.baseVecs));
-                group.userData.texU = d.texU; group.userData.texV = d.texV; 
+                group.userData.texU = d.texU; group.userData.texV = d.texV;
 
-                const geom = new THREE.BufferGeometry();
-                const mesh = new THREE.Mesh(geom, baseMaterial.clone());
+                const mesh = new THREE.Mesh(new THREE.BufferGeometry(), baseMaterial.clone());
+                mesh.material.wireframe = uiState.Wireframe;
                 group.add(mesh);
                 currentModelGroup.add(group);
-                
+
                 group.position.copy(d.position);
-                group.position.y += 1.5; group.position.x += 1.5; 
+                group.position.y += 1.5; group.position.x += 1.5;
                 group.rotation.copy(d.rotation);
                 group.scale.copy(d.scale);
 
@@ -455,64 +570,108 @@
                 newMeshes.push(mesh);
             });
 
-            newMeshes.forEach((m, i) => selezionaMesh(m, i > 0)); 
+            newMeshes.forEach((m, i) => selectMesh(m, i > 0));
             saveState();
         }
 
-        // --- ASCOLTATORE TASTIERA (SHORTCUTS) ---
+        function duplicateSelected() {
+            if (selectedGroups.length === 0) return;
+            copyBlock();
+            pasteBlock();
+        }
+
+        function updateSnap() {
+            if (uiState.SnapEnabled) {
+                transformControl.setTranslationSnap(uiState.SnapTranslate);
+                transformControl.setRotationSnap(THREE.MathUtils.degToRad(uiState.SnapRotate));
+                transformControl.setScaleSnap(0.25);
+            } else {
+                transformControl.setTranslationSnap(null);
+                transformControl.setRotationSnap(null);
+                transformControl.setScaleSnap(null);
+            }
+        }
+
+        function toggleWireframe() {
+            currentModelGroup.traverse(c => { if (c.isMesh) c.material.wireframe = uiState.Wireframe; });
+        }
+
+        function resetCamera() {
+            camera.position.set(5, 5, -5);
+            orbit.target.set(0, 0, 0);
+            orbit.update();
+        }
+
+        function newModel() {
+            if (!confirm("Clear the whole model? You can still undo with Ctrl+Z.")) return;
+            deselectAll();
+            currentModelGroup.traverse(c => { if (c.isGroup && c !== currentModelGroup) disposeGroup(c); });
+            currentModelGroup.clear();
+            tW = 512; tH = 16;
+            textureCanvas.width = tW; textureCanvas.height = tH;
+            ctx = textureCanvas.getContext('2d');
+            ctx.imageSmoothingEnabled = false;
+            ctx.fillStyle = "rgba(255, 255, 255, 1)";
+            ctx.fillRect(0, 0, tW, tH);
+            customCounter = 0;
+            updateTexture();
+            saveState();
+        }
+
         window.addEventListener('keydown', function(event) {
-            if(event.target.tagName === 'INPUT') return;
+            if (event.target.tagName === 'INPUT') return;
 
             if (!event.ctrlKey && !event.metaKey) {
-                switch(event.key.toLowerCase()) {
-                    case 't': uiState.Strumento = 'translate'; toolCtrl.updateDisplay(); transformControl.setMode('translate'); break;
-                    case 'r': uiState.Strumento = 'rotate'; toolCtrl.updateDisplay(); transformControl.setMode('rotate'); break;
-                    case 's': uiState.Strumento = 'scale'; toolCtrl.updateDisplay(); transformControl.setMode('scale'); break;
-                    case 'delete': case 'backspace': rimuoviBlocco(); break;
+                switch (event.key.toLowerCase()) {
+                    case 't': uiState.Tool = 'translate'; toolCtrl.updateDisplay(); transformControl.setMode('translate'); break;
+                    case 'r': uiState.Tool = 'rotate'; toolCtrl.updateDisplay(); transformControl.setMode('rotate'); break;
+                    case 's': uiState.Tool = 'scale'; toolCtrl.updateDisplay(); transformControl.setMode('scale'); break;
+                    case 'escape': deselectAll(); break;
+                    case 'delete': case 'backspace': removeBlock(); break;
                 }
                 return;
             }
 
-            switch(event.key.toLowerCase()) {
-                case 'c': copiaBlocco(); break;
-                case 'x': tagliaBlocco(); break;
-                case 'v': incollaBlocco(); break;
-                case 'z': loadState(historyIndex - 1); break; 
-                case 'y': loadState(historyIndex + 1); break; 
+            switch (event.key.toLowerCase()) {
+                case 'c': copyBlock(); event.preventDefault(); break;
+                case 'x': cutBlock(); event.preventDefault(); break;
+                case 'v': pasteBlock(); event.preventDefault(); break;
+                case 'd': duplicateSelected(); event.preventDefault(); break;
+                case 'a': selectAll(); event.preventDefault(); break;
+                case 'z': loadState(historyIndex - 1); event.preventDefault(); break;
+                case 'y': loadState(historyIndex + 1); event.preventDefault(); break;
             }
         });
 
-        // --- GESTORE MOUSE IMPENETRABILE ---
         window.addEventListener('pointerdown', function(event) {
-            if(event.button !== 0) return; 
-            if(event.target.closest('#left-panel') || event.target.closest('#right-panel') || event.target.closest('.dg.ac')) return;
-            if(transformControl.axis !== null) return; 
+            if (event.button !== 0) return;
+            if (event.target.closest('#left-panel') || event.target.closest('#right-panel') || event.target.closest('.dg.ac')) return;
+            if (transformControl.axis !== null) return;
 
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-            
+
             currentModelGroup.updateMatrixWorld(true);
             raycaster.setFromCamera(mouse, camera);
-            
+
             const intersects = raycaster.intersectObjects(currentModelGroup.children, true);
             const validIntersect = intersects.find(i => i.object.isMesh);
 
             const isMultiSelect = event.ctrlKey || event.metaKey;
 
             if (validIntersect) {
-                selezionaMesh(validIntersect.object, isMultiSelect);
+                selectMesh(validIntersect.object, isMultiSelect);
             } else if (!isMultiSelect) {
-                deselezionaTutto(); 
+                deselectAll();
             }
         }, true);
 
-        // --- COSTRUZIONE GEOMETRIA (ASTRATTA PER IL LOOP) ---
         function buildGeometryFor(group, mesh) {
             const w = group.userData.w; const h = group.userData.h; const len = group.userData.len;
             const offX = group.userData.offX; const offY = group.userData.offY; const offZ = group.userData.offZ;
-            
-            let vecs = JSON.parse(JSON.stringify(group.userData.baseVecs)); 
-            for(let i = 0; i < 8; i++) {
+
+            let vecs = JSON.parse(JSON.stringify(group.userData.baseVecs));
+            for (let i = 0; i < 8; i++) {
                 vecs[i][0] += offX; vecs[i][1] += offY; vecs[i][2] += offZ;
             }
 
@@ -531,15 +690,15 @@
             mesh.geometry.computeVertexNormals();
             mesh.geometry.computeBoundingBox();
             mesh.geometry.computeBoundingSphere();
-            
+
             const u = group.userData.texU; const v = group.userData.texV;
             const facesUVs = [
-                { u1: u, v1: v+len, u2: u+len, v2: v+len+h }, 
-                { u1: u+len+w, v1: v+len, u2: u+2*len+w, v2: v+len+h }, 
-                { u1: u+len, v1: v, u2: u+len+w, v2: v+len },   
-                { u1: u+len+w, v1: v, u2: u+len+2*w, v2: v+len },   
-                { u1: u+len, v1: v+len, u2: u+len+w, v2: v+len+h }, 
-                { u1: u+2*len+w, v1: v+len, u2: u+2*len+2*w, v2: v+len+h }  
+                { u1: u, v1: v+len, u2: u+len, v2: v+len+h },
+                { u1: u+len+w, v1: v+len, u2: u+2*len+w, v2: v+len+h },
+                { u1: u+len, v1: v, u2: u+len+w, v2: v+len },
+                { u1: u+len+w, v1: v, u2: u+len+2*w, v2: v+len },
+                { u1: u+len, v1: v+len, u2: u+len+w, v2: v+len+h },
+                { u1: u+2*len+w, v1: v+len, u2: u+2*len+2*w, v2: v+len+h }
             ];
             const uvs = [];
             facesUVs.forEach(f => {
@@ -550,11 +709,11 @@
             mesh.geometry.attributes.uv.needsUpdate = true;
         }
 
-        function rigeneraGeometriaPezzo() {
-            if(selectedGroups.length === 0) return;
-            
+        function regenerateSelectedGeometry() {
+            if (selectedGroups.length === 0) return;
+
             selectedGroups.forEach(g => {
-                g.userData.w = Math.max(0, uiState.w); 
+                g.userData.w = Math.max(0, uiState.w);
                 g.userData.h = Math.max(0, uiState.h);
                 g.userData.len = Math.max(0, uiState.len);
                 g.userData.offX = uiState.offX;
@@ -562,58 +721,56 @@
                 g.userData.offZ = uiState.offZ;
                 buildGeometryFor(g, g.children[0]);
             });
-            
+
             selectionBox.setFromObject(selectedGroups[selectedGroups.length - 1]);
         }
 
-        // --- PITTURA (MULTI) ---
-        function dipingiTexture() {
-            if(selectedGroups.length === 0) return;
-            
+        function paintTexture() {
+            if (selectedGroups.length === 0) return;
+
             selectedGroups.forEach(g => {
                 const u = g.userData.texU; const v = g.userData.texV;
                 const w = g.userData.w; const h = g.userData.h; const len = g.userData.len;
 
-                ctx.fillStyle = uiState.Colore;
-                ctx.fillRect(u + len, v, w, len); 
-                ctx.fillRect(u + len + w, v, w, len); 
-                ctx.fillRect(u, v + len, len, h); 
-                ctx.fillRect(u + len, v + len, w, h); 
-                ctx.fillRect(u + len + w, v + len, len, h); 
-                ctx.fillRect(u + 2*len + w, v + len, w, h); 
+                ctx.fillStyle = uiState.Color;
+                ctx.fillRect(u + len, v, w, len);
+                ctx.fillRect(u + len + w, v, w, len);
+                ctx.fillRect(u, v + len, len, h);
+                ctx.fillRect(u + len, v + len, w, h);
+                ctx.fillRect(u + len + w, v + len, len, h);
+                ctx.fillRect(u + 2 * len + w, v + len, w, h);
             });
 
-            globalTexture.needsUpdate = true;
+            updateTexture();
             saveState();
         }
 
-        // --- CREAZIONE BLOCCHI ---
-        function calcolaProssimaUVLibera(newW, newH, newLen) {
-            let maxVUsato = 0;
-            currentModelGroup.traverse((child) => {
-                if(child.isGroup && child.userData.texV !== undefined) {
+        function findNextFreeUV() {
+            let maxVUsed = 0;
+            currentModelGroup.traverse(child => {
+                if (child.isGroup && child.userData.texV !== undefined) {
                     let requiredHeight = child.userData.len + child.userData.h;
                     let bottomV = child.userData.texV + requiredHeight;
-                    if(bottomV > maxVUsato) maxVUsato = bottomV;
+                    if (bottomV > maxVUsed) maxVUsed = bottomV;
                 }
             });
-            return maxVUsato;
+            return maxVUsed;
         }
 
-        function creaNuovoBlocco() {
+        function createNewBlock() {
             const defaultW = 1, defaultH = 1, defaultLen = 1;
-            const nextFreeV = calcolaProssimaUVLibera(defaultW, defaultH, defaultLen);
+            const nextFreeV = findNextFreeUV();
             const neededHeight = nextFreeV + defaultLen + defaultH;
 
             if (neededHeight > tH) {
                 const oldTH = tH;
-                
+
                 let powerOf2 = 16;
                 while (powerOf2 < neededHeight) {
                     powerOf2 *= 2;
                 }
                 tH = powerOf2;
-                
+
                 const tempCanvas = document.createElement('canvas');
                 tempCanvas.width = tW; tempCanvas.height = oldTH;
                 tempCanvas.getContext('2d').drawImage(textureCanvas, 0, 0);
@@ -625,42 +782,40 @@
                 ctx.fillRect(0, 0, tW, tH);
                 ctx.drawImage(tempCanvas, 0, 0);
             }
-            
+
             const group = new THREE.Group();
-            group.name = "PezzoCustom_" + customCounter++;
-            group.rotation.order = 'ZYX'; 
-            
+            group.name = "CustomPart_" + customCounter++;
+            group.rotation.order = 'ZYX';
+
             group.userData.w = defaultW; group.userData.h = defaultH; group.userData.len = defaultLen;
             group.userData.offX = 0; group.userData.offY = 0; group.userData.offZ = 0;
             group.userData.baseVecs = [[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0]];
-            group.userData.texU = 0; group.userData.texV = nextFreeV; 
+            group.userData.texU = 0; group.userData.texV = nextFreeV;
 
-            const geom = new THREE.BufferGeometry();
-            const matClone = baseMaterial.clone(); 
-            const mesh = new THREE.Mesh(geom, matClone);
+            const mesh = new THREE.Mesh(new THREE.BufferGeometry(), baseMaterial.clone());
+            mesh.material.wireframe = uiState.Wireframe;
             group.add(mesh);
             currentModelGroup.add(group);
-            
+
             uiState.w = defaultW; uiState.h = defaultH; uiState.len = defaultLen;
             uiState.offX = 0; uiState.offY = 0; uiState.offZ = 0;
-            
-            selezionaMesh(mesh, false);
-            rigeneraGeometriaPezzo(); 
 
-            ctx.fillStyle = uiState.Colore;
-            ctx.fillRect(0 + defaultLen, nextFreeV, defaultW, defaultLen); 
-            ctx.fillRect(0 + defaultLen + defaultW, nextFreeV, defaultW, defaultLen); 
-            ctx.fillRect(0, nextFreeV + defaultLen, defaultLen, defaultH); 
-            ctx.fillRect(0 + defaultLen, nextFreeV + defaultLen, defaultW, defaultH); 
-            ctx.fillRect(0 + defaultLen + defaultW, nextFreeV + defaultLen, defaultLen, defaultH); 
-            ctx.fillRect(0 + 2*defaultLen + defaultW, nextFreeV + defaultLen, defaultW, defaultH); 
-            globalTexture.needsUpdate = true;
+            selectMesh(mesh, false);
+            regenerateSelectedGeometry();
+
+            ctx.fillStyle = uiState.Color;
+            ctx.fillRect(0 + defaultLen, nextFreeV, defaultW, defaultLen);
+            ctx.fillRect(0 + defaultLen + defaultW, nextFreeV, defaultW, defaultLen);
+            ctx.fillRect(0, nextFreeV + defaultLen, defaultLen, defaultH);
+            ctx.fillRect(0 + defaultLen, nextFreeV + defaultLen, defaultW, defaultH);
+            ctx.fillRect(0 + defaultLen + defaultW, nextFreeV + defaultLen, defaultLen, defaultH);
+            ctx.fillRect(0 + 2 * defaultLen + defaultW, nextFreeV + defaultLen, defaultW, defaultH);
+            updateTexture();
 
             gui.updateDisplay();
             saveState();
         }
 
-        // --- UPLOAD FILES E PARSER ---
         document.getElementById('textureUpload').addEventListener('change', function(event) {
             const file = event.target.files[0];
             if (file) {
@@ -670,8 +825,8 @@
                     img.onload = function() {
                         ctx.clearRect(0, 0, textureCanvas.width, textureCanvas.height);
                         ctx.drawImage(img, 0, 0, textureCanvas.width, textureCanvas.height);
-                        globalTexture.needsUpdate = true;
-                        saveState(); 
+                        updateTexture();
+                        saveState();
                     };
                     img.src = e.target.result;
                 };
@@ -680,21 +835,22 @@
         });
 
         function parseBModel(textContent) {
-            deselezionaTutto();
+            deselectAll();
+            currentModelGroup.traverse(c => { if (c.isGroup && c !== currentModelGroup) disposeGroup(c); });
             currentModelGroup.clear();
             const lines = textContent.split('\n');
-            const partsMap = {}; 
-            
+            const partsMap = {};
+
             const twMatch = textContent.match(/textureWidth\s*=\s*(\d+)/);
-            if(twMatch) tW = parseInt(twMatch[1]);
+            if (twMatch) tW = parseInt(twMatch[1]);
             const thMatch = textContent.match(/textureHeight\s*=\s*(\d+)/);
-            if(thMatch) tH = parseInt(thMatch[1]);
+            if (thMatch) tH = parseInt(thMatch[1]);
 
             textureCanvas.width = tW; textureCanvas.height = tH;
             ctx = textureCanvas.getContext('2d');
             ctx.imageSmoothingEnabled = false;
             ctx.fillStyle = "rgba(255, 255, 255, 1)";
-            ctx.fillRect(0,0,tW,tH);
+            ctx.fillRect(0, 0, tW, tH);
 
             lines.forEach(line => {
                 let l = line.trim();
@@ -722,7 +878,7 @@
                         targetGroup.userData.offY = parseFloat(shapeMatch[3].replace(/F/gi, ''));
                         targetGroup.userData.offZ = parseFloat(shapeMatch[4].replace(/F/gi, ''));
 
-                        const vecsRaw = shapeMatch[5].replace(/F/gi, ''); 
+                        const vecsRaw = shapeMatch[5].replace(/F/gi, '');
                         const vecMatches = vecsRaw.match(/\{([^{}]+)\}/g);
                         const baseVecs = [];
                         if (vecMatches) {
@@ -735,12 +891,13 @@
                         targetGroup.userData.w = parseFloat(shapeMatch[6].replace(/F/gi, ''));
                         targetGroup.userData.h = parseFloat(shapeMatch[7].replace(/F/gi, ''));
                         targetGroup.userData.len = parseFloat(shapeMatch[8].replace(/F/gi, ''));
-                        
+
                         const mesh = new THREE.Mesh(new THREE.BufferGeometry(), baseMaterial.clone());
+                        mesh.material.wireframe = uiState.Wireframe;
                         targetGroup.add(mesh);
-                        
+
                         buildGeometryFor(targetGroup, mesh);
-                    } catch(e) {}
+                    } catch (e) {}
                 }
 
                 const rotPtMatch = l.match(/([a-zA-Z0-9_]+)\.setRotationPoint\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)/);
@@ -752,14 +909,14 @@
                 if (rotMatch && partsMap[rotMatch[1]]) {
                     partsMap[rotMatch[1]].rotation.set(parseFloat(rotMatch[2].replace(/F/gi,'')), parseFloat(rotMatch[3].replace(/F/gi,'')), parseFloat(rotMatch[4].replace(/F/gi,'')));
                 }
-                
+
                 const childMatch = l.match(/([a-zA-Z0-9_]+)\.addChild\s*\(\s*([a-zA-Z0-9_]+)\s*\)/);
-                if(childMatch && partsMap[childMatch[1]] && partsMap[childMatch[2]]) {
+                if (childMatch && partsMap[childMatch[1]] && partsMap[childMatch[2]]) {
                     partsMap[childMatch[1]].add(partsMap[childMatch[2]]);
                     partsMap[childMatch[2]].userData.parentName = childMatch[1];
                 }
             });
-            globalTexture.needsUpdate = true;
+            updateTexture();
             saveState();
         }
 
@@ -772,41 +929,40 @@
             }
         });
 
-        // --- ESPORTAZIONE ---
-        function esportaTutto() {
+        function exportAll() {
             let exportData = "textureWidth = " + tW + ";\ntextureHeight = " + tH + ";\n\n";
-            
+
             function fmt(val) { return parseFloat(val.toFixed(4)).toString(); }
 
             currentModelGroup.traverse((child) => {
-                if(child.isGroup && child.name && child.name !== "") {
+                if (child.isGroup && child.name && child.name !== "") {
                     let u = child.userData.texU || 0; let v = child.userData.texV || 0;
-                    exportData += `${child.name} = new BeardieModelRenderer(this, ${u}, ${v});\n`;
-                    
+                    exportData += child.name + " = new BeardieModelRenderer(this, " + u + ", " + v + ");\n";
+
                     let sx = child.scale.x; let sy = child.scale.y; let sz = child.scale.z;
 
-                    let offX = (child.userData.offX || 0) * sx; 
-                    let offY = (child.userData.offY || 0) * sy; 
+                    let offX = (child.userData.offX || 0) * sx;
+                    let offY = (child.userData.offY || 0) * sy;
                     let offZ = (child.userData.offZ || 0) * sz;
-                    
-                    let w = child.userData.w || 1; 
-                    let h = child.userData.h || 1; 
+
+                    let w = child.userData.w || 1;
+                    let h = child.userData.h || 1;
                     let len = child.userData.len || 1;
-                    
+
                     let oldVecs = child.userData.baseVecs || [[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0]];
-                    
+
                     const B = [
                         [w, h, len], [0, h, len], [w, 0, len], [0, 0, len],
                         [w, h, 0],   [0, h, 0],   [w, 0, 0],   [0, 0, 0]
                     ];
-                    
+
                     let vecStr = "{";
-                    for(let i=0; i<8; i++){
+                    for (let i = 0; i < 8; i++) {
                         let vx = ((B[i][0] + oldVecs[i][0]) * sx) - B[i][0];
                         let vy = ((B[i][1] + oldVecs[i][1]) * sy) - B[i][1];
                         let vz = ((B[i][2] + oldVecs[i][2]) * sz) - B[i][2];
-                        vecStr += `{${fmt(vx)}F, ${fmt(vy)}F, ${fmt(vz)}F}`;
-                        if(i < 7) vecStr += ", ";
+                        vecStr += "{" + fmt(vx) + "F, " + fmt(vy) + "F, " + fmt(vz) + "F}";
+                        if (i < 7) vecStr += ", ";
                     }
                     vecStr += "}";
 
@@ -814,19 +970,19 @@
                     let hStr = Number.isInteger(h) ? h.toString() : h.toFixed(2).replace(/\.00$/, '');
                     let lStr = Number.isInteger(len) ? len.toString() : len.toFixed(2).replace(/\.00$/, '');
 
-                    exportData += `  ${child.name}.addShape(${fmt(offX)}F, ${fmt(offY)}F, ${fmt(offZ)}F, new float[][]${vecStr}, ${wStr}, ${hStr}, ${lStr});\n`;
-                    exportData += `  ${child.name}.setRotationPoint(${fmt(child.position.x)}F, ${fmt(child.position.y)}F, ${fmt(child.position.z)}F);\n`;
-                    
-                    if(child.rotation.x !== 0 || child.rotation.y !== 0 || child.rotation.z !== 0) {
-                        exportData += `  ${child.name}.setRotation(${fmt(child.rotation.x)}F, ${fmt(child.rotation.y)}F, ${fmt(child.rotation.z)}F);\n`;
+                    exportData += "  " + child.name + ".addShape(" + fmt(offX) + "F, " + fmt(offY) + "F, " + fmt(offZ) + "F, new float[][]" + vecStr + ", " + wStr + ", " + hStr + ", " + lStr + ");\n";
+                    exportData += "  " + child.name + ".setRotationPoint(" + fmt(child.position.x) + "F, " + fmt(child.position.y) + "F, " + fmt(child.position.z) + "F);\n";
+
+                    if (child.rotation.x !== 0 || child.rotation.y !== 0 || child.rotation.z !== 0) {
+                        exportData += "  " + child.name + ".setRotation(" + fmt(child.rotation.x) + "F, " + fmt(child.rotation.y) + "F, " + fmt(child.rotation.z) + "F);\n";
                     }
                     exportData += "\n";
                 }
             });
 
             currentModelGroup.traverse((child) => {
-                if(child.isGroup && child.userData.parentName) {
-                    exportData += `${child.userData.parentName}.addChild(${child.name});\n`;
+                if (child.isGroup && child.userData.parentName) {
+                    exportData += child.userData.parentName + ".addChild(" + child.name + ");\n";
                 }
             });
 
@@ -842,7 +998,6 @@
             }, 500);
         }
 
-        // --- LOOP ---
         function animate() {
             requestAnimationFrame(animate);
             orbit.update();
@@ -855,6 +1010,9 @@
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
+
+        refreshTexturePreview();
+        saveState();
     </script>
 </body>
 </html>
